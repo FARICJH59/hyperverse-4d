@@ -7,16 +7,18 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
     body { background: #05070d; color: #e2e8f0; overflow: hidden; touch-action: none; }
-    canvas { display: block; width: 100vw; height: 100vh; }
-    #hud { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; font-size: 13px; }
-    .panel { background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(6px); }
-    #radar { position: fixed; right: 14px; top: 80px; width: 34px; height: 220px; background: rgba(15, 23, 42, 0.8); border: 1px solid #38bdf8; border-radius: 17px; }
-    #radar-label { position: fixed; right: 10px; top: 60px; font-size: 11px; color: #38bdf8; }
-    #controls { position: fixed; bottom: 14px; left: 14px; right: 14px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-    button { background: rgba(30, 41, 59, 0.9); color: #38bdf8; border: 1px solid #38bdf8; border-radius: 8px; padding: 10px 14px; font-weight: 600; font-size: 13px; }
+    canvas { display: block; width: 100vw; height: 100vh; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+    #hud { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; font-size: 12px; }
+    .panel { background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(6px); }
+    #radar { position: fixed; right: 14px; top: 135px; width: 34px; height: 220px; background: rgba(15, 23, 42, 0.85); border: 1px solid #38bdf8; border-radius: 17px; }
+    #radar-label { position: fixed; right: 10px; top: 116px; font-size: 10px; font-weight: 700; color: #38bdf8; }
+    #controls { position: fixed; bottom: 14px; left: 14px; right: 14px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+    button { background: rgba(30, 41, 59, 0.92); color: #38bdf8; border: 1px solid #38bdf8; border-radius: 8px; padding: 9px 12px; font-weight: 600; font-size: 12px; }
     button:active { background: #38bdf8; color: #05070d; }
     #fireBtn { border-color: #f43f5e; color: #fb7185; }
     #fireBtn:active { background: #f43f5e; color: #fff; }
+    #lbList { margin-top: 4px; color: #94a3b8; font-size: 11px; line-height: 1.35; }
   </style>
 </head>
 <body>
@@ -24,12 +26,13 @@
   <div id="hud">
     <div class="panel">
       <div><strong>HYPERVERSE-4D</strong> • Shard: <span id="shardName">global-alpha</span></div>
-      <div>Pos: <span id="coords">0, 0, 0, W:0.0</span></div>
-      <div>Hyperplane: <span id="planes">XW:0.0° ZW:0.0°</span></div>
+      <div>Pos: <span id="coords">0.0, 0.0, 0.0, W:0.0</span></div>
+      <div>Hyperplane: <span id="planes">XW:0° ZW:0°</span></div>
+      <div style="color:#34d399;margin-top:2px;">● Green: 4D Crystals (+5) • Drag canvas to orbit</div>
     </div>
-    <div class="panel" style="text-align:right">
-      <div>Crystals: <strong id="score" style="color:#38bdf8">0</strong></div>
-      <div>Online: <span id="online">1</span></div>
+    <div class="panel" style="text-align:right; min-width: 145px;">
+      <div>Crystals: <strong id="score" style="color:#38bdf8">0</strong> • Online: <span id="online">1</span></div>
+      <div id="lbList">Top Shard Collectors...</div>
     </div>
   </div>
   <div id="radar-label">W-SONAR</div>
@@ -60,8 +63,9 @@
     localStorage.setItem("hv4d_id", myId);
 
     const me = { id: myId, x: 0, y: 0, z: 0, w: 0, score: 0 };
-    const rot = { xy: 0, xz: 0.3, yz: 0.2, xw: 0, yw: 0, zw: 0 };
+    const rot = { xy: 0, xz: 0.35, yz: 0.22, xw: 0, yw: 0, zw: 0 };
     let remotePlayers = [];
+    let crystals = [];
     let activePulses = [];
 
     const tesseractVerts = [];
@@ -88,7 +92,8 @@
         const msg = JSON.parse(e.data);
         if (msg.type === "state") {
           remotePlayers = msg.players;
-          activePulses = msg.pulses;
+          crystals = msg.crystals || [];
+          activePulses = msg.pulses || [];
           const selfServer = remotePlayers.find(p => p.id === myId);
           if (selfServer) {
             me.score = selfServer.score;
@@ -96,11 +101,28 @@
           }
           document.getElementById("score").textContent = me.score;
           document.getElementById("online").textContent = remotePlayers.length;
+          if (msg.leaderboard?.length) {
+            document.getElementById("lbList").innerHTML = msg.leaderboard
+              .map((r, idx) => `#${idx + 1} ${r.player_id}: <strong>${r.score}</strong>`)
+              .join("<br>");
+          }
         }
       };
       ws.onclose = () => setTimeout(connect, 1500);
     }
     connect();
+
+    // Pointer-drag 3D/4D viewport orbit
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener("pointerup", () => dragging = false);
+    window.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      rot.xz += (e.clientX - lastX) * 0.008;
+      rot.yz += (e.clientY - lastY) * 0.008;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
 
     window.rot = rot;
     window.me = me;
@@ -121,15 +143,15 @@
       }
     }, 50);
 
-    function frame() {
+    function frame(t) {
       canvas.width = innerWidth;
       canvas.height = innerHeight;
 
       const spd = 0.08;
-      if (keys.KeyW || keys.ArrowUp) me.z += spd;
-      if (keys.KeyS || keys.ArrowDown) me.z -= spd;
-      if (keys.KeyA || keys.ArrowLeft) me.x -= spd;
-      if (keys.KeyD || keys.ArrowRight) me.x += spd;
+      if (keys.KeyW || keys.ArrowUp) me.z = Math.min(4.2, me.z + spd);
+      if (keys.KeyS || keys.ArrowDown) me.z = Math.max(-4.2, me.z - spd);
+      if (keys.KeyA || keys.ArrowLeft) me.x = Math.max(-4.2, me.x - spd);
+      if (keys.KeyD || keys.ArrowRight) me.x = Math.min(4.2, me.x + spd);
       if (keys.KeyQ) me.w = Math.max(-8, me.w - 0.06);
       if (keys.KeyE) me.w = Math.min(8, me.w + 0.06);
       if (keys.KeyR) rot.xw += 0.025;
@@ -143,8 +165,9 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const cx = canvas.width / 2, cy = canvas.height / 2;
 
+      // 1. Render 4D Tesseract Wireframe
       const projVerts = tesseractVerts.map(v => project4Dto2D(rotate4D(v, rot), me.w));
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.28)";
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.25)";
       ctx.lineWidth = 1.5;
       for (const [a, b] of tesseractEdges) {
         const p1 = projVerts[a], p2 = projVerts[b];
@@ -155,6 +178,24 @@
         ctx.stroke();
       }
 
+      // 2. Render 4D Collectible Energy Crystals
+      const pulseSize = 1 + Math.sin(t * 0.006) * 0.2;
+      for (const c of crystals) {
+        const p = project4Dto2D(rotate4D(new Vec4(c.x, c.y, c.z, c.w), rot), me.w);
+        if (!p.visible) continue;
+        const alpha = Math.max(0.15, 1 - Math.abs(p.relW) / 6.5);
+        const r = Math.max(5, p.scale * 0.16 * pulseSize);
+        ctx.fillStyle = `rgba(52, 211, 153, ${alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(cx + p.x, cy + p.y - r);
+        ctx.lineTo(cx + p.x + r, cy + p.y);
+        ctx.lineTo(cx + p.x, cy + p.y + r);
+        ctx.lineTo(cx + p.x - r, cy + p.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 3. Render 4D Combat Pulses
       for (const pulse of activePulses) {
         const p = project4Dto2D(rotate4D(new Vec4(pulse.x, pulse.y, pulse.z, pulse.w), rot), me.w);
         if (!p.visible) continue;
@@ -166,6 +207,7 @@
         ctx.stroke();
       }
 
+      // 4. Render Players
       const list = remotePlayers.length ? remotePlayers : [me];
       for (const pl of list) {
         const pos = pl.id === myId ? me : pl;
@@ -181,9 +223,15 @@
         ctx.fillText(`${pl.id} (W:${pos.w.toFixed(1)})`, cx + p.x + 10, cy + p.y);
       }
 
+      // 5. Render W-SONAR (Players + Crystals across W = -8 to +8)
       rCtx.clearRect(0, 0, 34, 220);
       rCtx.strokeStyle = "rgba(56, 189, 248, 0.4)";
       rCtx.beginPath(); rCtx.moveTo(0, 110); rCtx.lineTo(34, 110); rCtx.stroke();
+      for (const c of crystals) {
+        const y = 110 - (c.w / 8) * 95;
+        rCtx.fillStyle = "#34d399";
+        rCtx.fillRect(14, y - 3, 6, 6);
+      }
       for (const pl of list) {
         const pos = pl.id === myId ? me : pl;
         const y = 110 - (pos.w / 8) * 95;
