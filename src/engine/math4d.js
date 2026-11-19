@@ -1,91 +1,38 @@
 export class Vec4 {
   constructor(x = 0, y = 0, z = 0, w = 0) {
-    this.x = x;
-    this.y = y;
-    this.z = z;
-    this.w = w;
-  }
-
-  add(v) {
-    return new Vec4(this.x + v.x, this.y + v.y, this.z + v.z, this.w + v.w);
-  }
-
-  sub(v) {
-    return new Vec4(this.x - v.x, this.y - v.y, this.z - v.z, this.w - v.w);
-  }
-
-  scale(s) {
-    return new Vec4(this.x * s, this.y * s, this.z * s, this.w * s);
-  }
-
-  length() {
-    return Math.hypot(this.x, this.y, this.z, this.w);
-  }
-
-  normalize() {
-    const len = this.length() || 1;
-    return this.scale(1 / len);
+    this.x = x; this.y = y; this.z = z; this.w = w;
   }
 }
 
-export class Projector4D {
-  constructor(fov4D = 3.5, fov3D = 500) {
-    this.fov4D = fov4D;
-    this.fov3D = fov3D;
-  }
+export function rotate4D(v, angles) {
+  let { x, y, z, w } = v;
+  const { xy = 0, xz = 0, yz = 0, xw = 0, yw = 0, zw = 0 } = angles;
 
-  rotate(v, plane, angle) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    let { x, y, z, w } = v;
+  // 3D standard planes
+  if (xy) { const c = Math.cos(xy), s = Math.sin(xy); [x, y] = [x * c - y * s, x * s + y * c]; }
+  if (xz) { const c = Math.cos(xz), s = Math.sin(xz); [x, z] = [x * c - z * s, x * s + z * c]; }
+  if (yz) { const c = Math.cos(yz), s = Math.sin(yz); [y, z] = [y * c - z * s, y * s + z * c]; }
 
-    switch (plane) {
-      case 'XY': [x, y] = [x * c - y * s, x * s + y * c]; break;
-      case 'XZ': [x, z] = [x * c - z * s, x * s + z * c]; break;
-      case 'XW': [x, w] = [x * c - w * s, x * s + w * c]; break;
-      case 'YZ': [y, z] = [y * c - z * s, y * s + z * c]; break;
-      case 'YW': [y, w] = [y * c - w * s, y * s + w * c]; break;
-      case 'ZW': [z, w] = [z * c - w * s, z * s + w * c]; break;
-    }
-    return new Vec4(x, y, z, w);
-  }
+  // 4D hyperplane rotations (morphs geometry across the W axis)
+  if (xw) { const c = Math.cos(xw), s = Math.sin(xw); [x, w] = [x * c - w * s, x * s + w * c]; }
+  if (yw) { const c = Math.cos(yw), s = Math.sin(yw); [y, w] = [y * c - w * s, y * s + w * c]; }
+  if (zw) { const c = Math.cos(zw), s = Math.sin(zw); [z, w] = [z * c - w * s, z * s + w * c]; }
 
-  project(point4D, cameraW = 0, screenWidth = 800, screenHeight = 600) {
-    const relW = point4D.w - cameraW;
-    const wFactor = this.fov4D / (this.fov4D + relW);
-
-    const x3 = point4D.x * wFactor;
-    const y3 = point4D.y * wFactor;
-    const z3 = point4D.z * wFactor;
-
-    const zOffset = z3 + 12;
-    const scale = this.fov3D / Math.max(1, zOffset);
-
-    return {
-      x: screenWidth / 2 + x3 * scale,
-      y: screenHeight / 2 + y3 * scale,
-      scale: scale * wFactor,
-      wDistance: Math.abs(relW)
-    };
-  }
+  return new Vec4(x, y, z, w);
 }
 
-export function createTesseractMesh(size = 1) {
-  const vertices = [];
-  for (let i = 0; i < 16; i++) {
-    vertices.push(new Vec4(
-      (i & 1 ? 1 : -1) * size,
-      (i & 2 ? 1 : -1) * size,
-      (i & 4 ? 1 : -1) * size,
-      (i & 8 ? 1 : -1) * size
-    ));
-  }
-  const edges = [];
-  for (let i = 0; i < 16; i++) {
-    for (let bit = 0; bit < 4; bit++) {
-      const j = i ^ (1 << bit);
-      if (i < j) edges.push([i, j]);
-    }
-  }
-  return { vertices, edges };
+export function project4Dto2D(v4, cameraW = 0, fov = 420) {
+  const relW = v4.w - cameraW;
+  const wFactor = 3.5 / Math.max(0.6, 3.5 + relW * 0.35);
+  const x3 = v4.x * wFactor;
+  const y3 = v4.y * wFactor;
+  const z3 = v4.z * wFactor + 6;
+  const scale = fov / Math.max(0.5, z3);
+  return {
+    x: x3 * scale,
+    y: y3 * scale,
+    scale,
+    relW,
+    visible: Math.abs(relW) < 6.5
+  };
 }

@@ -2,109 +2,200 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Hyperverse-4D: Rift Survivor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Hyperverse-4D | Multiplayer 4D Arena</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body { background: #07080f; color: #fff; font-family: system-ui, sans-serif; overflow: hidden; }
-    canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
-    #hud {
-      position: fixed; top: 12px; left: 12px; right: 12px;
-      display: flex; justify-content: space-between; pointer-events: none;
-      font-size: 14px; font-weight: 600; text-shadow: 0 1px 4px #000;
-    }
-    #w-controls {
-      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-      display: flex; gap: 10px; z-index: 10;
-    }
-    .w-btn {
-      padding: 12px 18px; border: 1px solid rgba(255,255,255,0.25);
-      background: rgba(15, 18, 30, 0.85); color: #fff; border-radius: 10px;
-      font-weight: bold; font-size: 14px; cursor: pointer;
-    }
-    .w-btn.active { border-color: #00f5d4; box-shadow: 0 0 12px rgba(0,245,212,0.5); }
-    #modal {
-      display: none; position: fixed; inset: 0; background: rgba(5, 6, 12, 0.88);
-      flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 20;
-    }
-    .card {
-      width: 260px; padding: 16px; background: #131629; border: 1px solid #00f5d4;
-      border-radius: 10px; text-align: center; cursor: pointer;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+    body { background: #05070d; color: #e2e8f0; overflow: hidden; touch-action: none; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; font-size: 13px; }
+    .panel { background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(6px); }
+    #radar { position: fixed; right: 14px; top: 80px; width: 34px; height: 220px; background: rgba(15, 23, 42, 0.8); border: 1px solid #38bdf8; border-radius: 17px; }
+    #radar-label { position: fixed; right: 10px; top: 60px; font-size: 11px; color: #38bdf8; }
+    #controls { position: fixed; bottom: 14px; left: 14px; right: 14px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    button { background: rgba(30, 41, 59, 0.9); color: #38bdf8; border: 1px solid #38bdf8; border-radius: 8px; padding: 10px 14px; font-weight: 600; font-size: 13px; }
+    button:active { background: #38bdf8; color: #05070d; }
+    #fireBtn { border-color: #f43f5e; color: #fb7185; }
+    #fireBtn:active { background: #f43f5e; color: #fff; }
   </style>
 </head>
 <body>
+  <canvas id="c"></canvas>
   <div id="hud">
-    <div>HP: <span id="hp">100</span> | LVL: <span id="lvl">1</span></div>
-    <div>W-SLICE: <span id="w-val">0.00</span></div>
-    <div>SCORE: <span id="score">0</span></div>
+    <div class="panel">
+      <div><strong>HYPERVERSE-4D</strong> • Shard: <span id="shardName">global-alpha</span></div>
+      <div>Pos: <span id="coords">0, 0, 0, W:0.0</span></div>
+      <div>Hyperplane: <span id="planes">XW:0.0° ZW:0.0°</span></div>
+    </div>
+    <div class="panel" style="text-align:right">
+      <div>Crystals: <strong id="score" style="color:#38bdf8">0</strong></div>
+      <div>Online: <span id="online">1</span></div>
+    </div>
   </div>
-
-  <canvas id="gameCanvas"></canvas>
-
-  <div id="w-controls">
-    <button class="w-btn" data-w="-1">W: -1.0 (Pink)</button>
-    <button class="w-btn active" data-w="0">W: 0.0 (Gold)</button>
-    <button class="w-btn" data-w="1">W: +1.0 (Violet)</button>
+  <div id="radar-label">W-SONAR</div>
+  <canvas id="radar" width="34" height="220"></canvas>
+  <div id="controls">
+    <button onpointerdown="rot.xw += 0.25">XW + (R)</button>
+    <button onpointerdown="rot.xw -= 0.25">XW - (F)</button>
+    <button onpointerdown="rot.zw += 0.25">ZW + (T)</button>
+    <button onpointerdown="rot.zw -= 0.25">ZW - (G)</button>
+    <button onpointerdown="me.w = Math.max(-8, me.w - 0.5)">W - (Q)</button>
+    <button onpointerdown="me.w = Math.min(8, me.w + 0.5)">W + (E)</button>
+    <button id="fireBtn" onpointerdown="firePulse()">4D PULSE (SPACE)</button>
   </div>
-
-  <div id="modal"></div>
 
   <script type="module">
-    import { HyperEngine } from '../engine/core.js';
-    import { RiftSurvivorScene } from '../games/roguelite/game.js';
+    import { Vec4, rotate4D, project4Dto2D } from "../engine/math4d.js";
 
-    const canvas = document.getElementById('gameCanvas');
-    const modal = document.getElementById('modal');
-    const engine = new HyperEngine(canvas);
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    const rCanvas = document.getElementById("radar");
+    const rCtx = rCanvas.getContext("2d");
 
-    const scene = new RiftSurvivorScene({
-      onStats: ({ hp, w, level, score }) => {
-        document.getElementById('hp').textContent = hp;
-        document.getElementById('w-val').textContent = w;
-        document.getElementById('lvl').textContent = level;
-        document.getElementById('score').textContent = score;
-      },
-      onLevelUp: (lvl) => {
-        modal.style.display = 'flex';
-        modal.innerHTML = `<h3>Dimension Level ${lvl} — Choose Upgrade</h3>` + [
-          { id: 'fireRate', label: '+20% Fire Rate' },
-          { id: 'damage', label: '+15 Pulse Damage' },
-          { id: 'speed', label: '+15% Move Speed' },
-          { id: 'heal', label: 'Restore 40 HP' }
-        ].map(u => `<div class="card" data-id="${u.id}">${u.label}</div>`).join('');
+    const params = new URLSearchParams(location.search);
+    const shard = params.get("shard") || "global-alpha";
+    document.getElementById("shardName").textContent = shard;
 
-        modal.querySelectorAll('.card').forEach(el => {
-          el.onclick = () => {
-            scene.applyUpgrade(el.dataset.id);
-            modal.style.display = 'none';
-          };
-        });
-      },
-      onGameOver: (score) => {
-        modal.style.display = 'flex';
-        modal.innerHTML = `
-          <h2>Collapsed in 4D Space</h2>
-          <p>Final Score: ${score}</p>
-          <div class="card" id="restart-btn">Play Again</div>
-        `;
-        document.getElementById('restart-btn').onclick = () => {
-          modal.style.display = 'none';
-          engine.loadScene(scene);
-        };
+    const myId = localStorage.getItem("hv4d_id") || ("P-" + Math.random().toString(36).slice(2, 6).toUpperCase());
+    localStorage.setItem("hv4d_id", myId);
+
+    const me = { id: myId, x: 0, y: 0, z: 0, w: 0, score: 0 };
+    const rot = { xy: 0, xz: 0.3, yz: 0.2, xw: 0, yw: 0, zw: 0 };
+    let remotePlayers = [];
+    let activePulses = [];
+
+    const tesseractVerts = [];
+    for (let i = 0; i < 16; i++) {
+      tesseractVerts.push(new Vec4(
+        (i & 1 ? 3 : -3),
+        (i & 2 ? 3 : -3),
+        (i & 4 ? 3 : -3),
+        (i & 8 ? 3 : -3)
+      ));
+    }
+    const tesseractEdges = [];
+    for (let i = 0; i < 16; i++) {
+      for (let bit = 1; bit < 16; bit <<= 1) {
+        if ((i & bit) === 0) tesseractEdges.push([i, i | bit]);
       }
-    });
+    }
 
-    document.querySelectorAll('.w-btn').forEach(btn => {
-      btn.onclick = () => {
-        document.querySelectorAll('.w-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        scene.setTargetW(parseFloat(btn.dataset.w));
+    const wsUrl = `wss://hyperverse-4d-shard.richmondbawuah1.workers.dev/?shard=${encodeURIComponent(shard)}&id=${encodeURIComponent(myId)}`;
+    let ws;
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "state") {
+          remotePlayers = msg.players;
+          activePulses = msg.pulses;
+          const selfServer = remotePlayers.find(p => p.id === myId);
+          if (selfServer) {
+            me.score = selfServer.score;
+            if (Math.abs(selfServer.w - me.w) > 1.8) me.w = selfServer.w;
+          }
+          document.getElementById("score").textContent = me.score;
+          document.getElementById("online").textContent = remotePlayers.length;
+        }
       };
-    });
+      ws.onclose = () => setTimeout(connect, 1500);
+    }
+    connect();
 
-    engine.loadScene(scene);
-    engine.start();
+    window.rot = rot;
+    window.me = me;
+    window.firePulse = () => {
+      if (ws?.readyState === 1) ws.send(JSON.stringify({ type: "pulse" }));
+    };
+
+    const keys = {};
+    window.addEventListener("keydown", (e) => {
+      keys[e.code] = true;
+      if (e.code === "Space") { e.preventDefault(); window.firePulse(); }
+    });
+    window.addEventListener("keyup", (e) => keys[e.code] = false);
+
+    setInterval(() => {
+      if (ws?.readyState === 1) {
+        ws.send(JSON.stringify({ type: "move", x: me.x, y: me.y, z: me.z, w: me.w }));
+      }
+    }, 50);
+
+    function frame() {
+      canvas.width = innerWidth;
+      canvas.height = innerHeight;
+
+      const spd = 0.08;
+      if (keys.KeyW || keys.ArrowUp) me.z += spd;
+      if (keys.KeyS || keys.ArrowDown) me.z -= spd;
+      if (keys.KeyA || keys.ArrowLeft) me.x -= spd;
+      if (keys.KeyD || keys.ArrowRight) me.x += spd;
+      if (keys.KeyQ) me.w = Math.max(-8, me.w - 0.06);
+      if (keys.KeyE) me.w = Math.min(8, me.w + 0.06);
+      if (keys.KeyR) rot.xw += 0.025;
+      if (keys.KeyF) rot.xw -= 0.025;
+      if (keys.KeyT) rot.zw += 0.025;
+      if (keys.KeyG) rot.zw -= 0.025;
+
+      document.getElementById("coords").textContent = `${me.x.toFixed(1)}, ${me.y.toFixed(1)}, ${me.z.toFixed(1)}, W:${me.w.toFixed(1)}`;
+      document.getElementById("planes").textContent = `XW:${(rot.xw * 57.3).toFixed(0)}° ZW:${(rot.zw * 57.3).toFixed(0)}°`;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+
+      const projVerts = tesseractVerts.map(v => project4Dto2D(rotate4D(v, rot), me.w));
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.28)";
+      ctx.lineWidth = 1.5;
+      for (const [a, b] of tesseractEdges) {
+        const p1 = projVerts[a], p2 = projVerts[b];
+        if (!p1.visible && !p2.visible) continue;
+        ctx.beginPath();
+        ctx.moveTo(cx + p1.x, cy + p1.y);
+        ctx.lineTo(cx + p2.x, cy + p2.y);
+        ctx.stroke();
+      }
+
+      for (const pulse of activePulses) {
+        const p = project4Dto2D(rotate4D(new Vec4(pulse.x, pulse.y, pulse.z, pulse.w), rot), me.w);
+        if (!p.visible) continue;
+        const alpha = Math.max(0, 1 - Math.abs(p.relW) / 6.5);
+        ctx.strokeStyle = `rgba(244, 63, 94, ${alpha})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(cx + p.x, cy + p.y, pulse.r * p.scale * 0.4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      const list = remotePlayers.length ? remotePlayers : [me];
+      for (const pl of list) {
+        const pos = pl.id === myId ? me : pl;
+        const p = project4Dto2D(rotate4D(new Vec4(pos.x, pos.y, pos.z, pos.w), rot), me.w);
+        if (!p.visible) continue;
+        const alpha = Math.max(0.15, 1 - Math.abs(p.relW) / 6.5);
+        ctx.fillStyle = pl.id === myId ? `rgba(56, 189, 248, ${alpha})` : `rgba(250, 204, 21, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(cx + p.x, cy + p.y, Math.max(6, p.scale * 0.22), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.font = "11px sans-serif";
+        ctx.fillText(`${pl.id} (W:${pos.w.toFixed(1)})`, cx + p.x + 10, cy + p.y);
+      }
+
+      rCtx.clearRect(0, 0, 34, 220);
+      rCtx.strokeStyle = "rgba(56, 189, 248, 0.4)";
+      rCtx.beginPath(); rCtx.moveTo(0, 110); rCtx.lineTo(34, 110); rCtx.stroke();
+      for (const pl of list) {
+        const pos = pl.id === myId ? me : pl;
+        const y = 110 - (pos.w / 8) * 95;
+        rCtx.fillStyle = pl.id === myId ? "#38bdf8" : "#facc15";
+        rCtx.beginPath();
+        rCtx.arc(17, y, pl.id === myId ? 6 : 5, 0, Math.PI * 2);
+        rCtx.fill();
+      }
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
   </script>
 </body>
 </html>

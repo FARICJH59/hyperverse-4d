@@ -1,91 +1,107 @@
-import { Vec4 } from '../src/engine/math4d.js';
+import { DurableObject } from "cloudflare:workers";
+
+export class HyperverseShard extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.ctx = ctx;
+    this.players = new Map();
+    this.pulses = [];
+    this.ctx.blockConcurrencyWhile(async () => {
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS leaderboard (
+          player_id TEXT PRIMARY KEY,
+          score INTEGER DEFAULT 0
+        )
+      `);
+    });
+    this.loop = setInterval(() => this.tick(), 50);
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.headers.get("Upgrade") !== "websocket") {
+      const top = [...this.ctx.storage.sql.exec(
+        "SELECT player_id, score FROM leaderboard ORDER BY score DESC LIMIT 10"
+      )];
+      return Response.json({ status: "Hyperverse-4D Edge Shard Ready", tps: 20, top });
+    }
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    const id = url.searchParams.get("id") || crypto.randomUUID().slice(0, 8);
+    this.ctx.acceptWebSocket(server, [id]);
+    server.serializeAttachment({ id });
+
+    const row = [...this.ctx.storage.sql.exec(
+      "SELECT score FROM leaderboard WHERE player_id = ?", id
+    )][0];
+    this.players.set(id, { id, x: 0, y: 0, z: 0, w: 0, score: row ? row.score : 0 });
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  webSocketMessage(ws, message) {
+    const { id } = ws.deserializeAttachment();
+    const data = JSON.parse(message);
+    const p = this.players.get(id);
+    if (!p) return;
+
+    if (data.type === "move") {
+      Object.assign(p, { x: data.x, y: data.y, z: data.z, w: data.w });
+    } else if (data.type === "pulse") {
+      this.pulses.push({ owner: id, x: p.x, y: p.y, z: p.z, w: p.w, r: 0.5, ttl: 12 });
+    }
+  }
+
+  webSocketClose(ws) {
+    const { id } = ws.deserializeAttachment();
+    this.players.delete(id);
+  }
+
+  tick() {
+    this.pulses = this.pulses.filter(pulse => {
+      pulse.r += 0.45;
+      pulse.ttl -= 1;
+      for (const [targetId, target] of this.players) {
+        if (targetId === pulse.owner) continue;
+        const d4 = Math.hypot(
+          target.x - pulse.x,
+          target.y - pulse.y,
+          target.z - pulse.z,
+          target.w - pulse.w
+        );
+        if (Math.abs(d4 - pulse.r) < 0.75) {
+          const attacker = this.players.get(pulse.owner);
+          if (attacker) {
+            attacker.score += 10;
+            this.ctx.storage.sql.exec(
+              "INSERT INTO leaderboard (player_id, score) VALUES (?, ?) ON CONFLICT(player_id) DO UPDATE SET score = excluded.score",
+              attacker.id, attacker.score
+            );
+          }
+          target.w = Math.max(-8, Math.min(8, target.w + (Math.random() > 0.5 ? 2.5 : -2.5)));
+          pulse.ttl = 0;
+        }
+      }
+      return pulse.ttl > 0;
+    });
+
+    const sockets = this.ctx.getWebSockets();
+    if (!sockets.length) return;
+    const snapshot = JSON.stringify({
+      type: "state",
+      players: [...this.players.values()],
+      pulses: this.pulses
+    });
+    for (const ws of sockets) {
+      try { ws.send(snapshot); } catch {}
+    }
+  }
+}
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // Route WebSocket connections to a named 4D shard (supports multiple rooms via ?shard=...)
-    const shardName = url.searchParams.get('shard') || 'global-alpha';
+    const shardName = url.searchParams.get("shard") || "global-alpha";
     const id = env.SHARD.idFromName(shardName);
-    const stub = env.SHARD.get(id);
-    return stub.fetch(request);
+    return env.SHARD.get(id).fetch(request);
   }
 };
-
-export class HyperverseShard {
-  constructor(state, env) {
-    this.state = state;
-    this.players = new Map();
-    this.tickInterval = null;
-  }
-
-  async fetch(request) {
-    if (request.headers.get('Upgrade') !== 'websocket') {
-      return new Response('Hyperverse-4D Edge Shard Ready', { status: 200 });
-    }
-
-    if (this.players.size >= 50) {
-      return new Response('Shard Full', { status: 503 });
-    }
-
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
-
-    const id = Math.random().toString(36).slice(2, 9);
-    this.players.set(id, {
-      id,
-      ws: server,
-      pos: new Vec4((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 0, 0),
-      input: { moveX: 0, moveY: 0 },
-      hp: 100
-    });
-
-    server.send(JSON.stringify({ type: 'welcome', id }));
-    this._ensureTickLoop();
-
-    server.addEventListener('message', (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        const p = this.players.get(id);
-        if (!p) return;
-        if (msg.type === 'input') {
-          p.input.moveX = Math.max(-1, Math.min(1, Number(msg.moveX) || 0));
-          p.input.moveY = Math.max(-1, Math.min(1, Number(msg.moveY) || 0));
-          if (typeof msg.targetW === 'number') {
-            p.pos.w = Math.max(-1.5, Math.min(1.5, msg.targetW));
-          }
-        }
-      } catch (_) {}
-    });
-
-    server.addEventListener('close', () => {
-      this.players.delete(id);
-      if (this.players.size === 0 && this.tickInterval) {
-        clearInterval(this.tickInterval);
-        this.tickInterval = null;
-      }
-    });
-
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  _ensureTickLoop() {
-    if (this.tickInterval) return;
-    const TICK_RATE = 20;
-    const dt = 1 / TICK_RATE;
-
-    this.tickInterval = setInterval(() => {
-      const snapshot = [];
-      for (const p of this.players.values()) {
-        p.pos.x = Math.max(-6, Math.min(6, p.pos.x + p.input.moveX * 4.5 * dt));
-        p.pos.y = Math.max(-6, Math.min(6, p.pos.y + p.input.moveY * 4.5 * dt));
-        snapshot.push({ id: p.id, x: p.pos.x, y: p.pos.y, w: p.pos.w, hp: p.hp });
-      }
-
-      const payload = JSON.stringify({ type: 'state', players: snapshot });
-      for (const p of this.players.values()) {
-        try { p.ws.send(payload); } catch (_) {}
-      }
-    }, 1000 / TICK_RATE);
-  }
-}
