@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Hyperverse-4D: Rift Survivor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #07080f; color: #fff; font-family: system-ui, sans-serif; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+    #hud {
+      position: fixed; top: 12px; left: 12px; right: 12px;
+      display: flex; justify-content: space-between; pointer-events: none;
+      font-size: 14px; font-weight: 600; text-shadow: 0 1px 4px #000;
+    }
+    #w-controls {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 10px; z-index: 10;
+    }
+    .w-btn {
+      padding: 12px 18px; border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(15, 18, 30, 0.85); color: #fff; border-radius: 10px;
+      font-weight: bold; font-size: 14px; cursor: pointer;
+    }
+    .w-btn.active { border-color: #00f5d4; box-shadow: 0 0 12px rgba(0,245,212,0.5); }
+    #modal {
+      display: none; position: fixed; inset: 0; background: rgba(5, 6, 12, 0.88);
+      flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 20;
+    }
+    .card {
+      width: 260px; padding: 16px; background: #131629; border: 1px solid #00f5d4;
+      border-radius: 10px; text-align: center; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div>HP: <span id="hp">100</span> | LVL: <span id="lvl">1</span></div>
+    <div>W-SLICE: <span id="w-val">0.00</span></div>
+    <div>SCORE: <span id="score">0</span></div>
+  </div>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="w-controls">
+    <button class="w-btn" data-w="-1">W: -1.0 (Pink)</button>
+    <button class="w-btn active" data-w="0">W: 0.0 (Gold)</button>
+    <button class="w-btn" data-w="1">W: +1.0 (Violet)</button>
+  </div>
+
+  <div id="modal"></div>
+
+  <script type="module">
+    import { HyperEngine } from '../engine/core.js';
+    import { RiftSurvivorScene } from '../games/roguelite/game.js';
+
+    const canvas = document.getElementById('gameCanvas');
+    const modal = document.getElementById('modal');
+    const engine = new HyperEngine(canvas);
+
+    const scene = new RiftSurvivorScene({
+      onStats: ({ hp, w, level, score }) => {
+        document.getElementById('hp').textContent = hp;
+        document.getElementById('w-val').textContent = w;
+        document.getElementById('lvl').textContent = level;
+        document.getElementById('score').textContent = score;
+      },
+      onLevelUp: (lvl) => {
+        modal.style.display = 'flex';
+        modal.innerHTML = `<h3>Dimension Level ${lvl} — Choose Upgrade</h3>` + [
+          { id: 'fireRate', label: '+20% Fire Rate' },
+          { id: 'damage', label: '+15 Pulse Damage' },
+          { id: 'speed', label: '+15% Move Speed' },
+          { id: 'heal', label: 'Restore 40 HP' }
+        ].map(u => `<div class="card" data-id="${u.id}">${u.label}</div>`).join('');
+
+        modal.querySelectorAll('.card').forEach(el => {
+          el.onclick = () => {
+            scene.applyUpgrade(el.dataset.id);
+            modal.style.display = 'none';
+          };
+        });
+      },
+      onGameOver: (score) => {
+        modal.style.display = 'flex';
+        modal.innerHTML = `
+          <h2>Collapsed in 4D Space</h2>
+          <p>Final Score: ${score}</p>
+          <div class="card" id="restart-btn">Play Again</div>
+        `;
+        document.getElementById('restart-btn').onclick = () => {
+          modal.style.display = 'none';
+          engine.loadScene(scene);
+        };
+      }
+    });
+
+    document.querySelectorAll('.w-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.w-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        scene.setTargetW(parseFloat(btn.dataset.w));
+      };
+    });
+
+    engine.loadScene(scene);
+    engine.start();
+  </script>
+</body>
+</html>
