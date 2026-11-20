@@ -1,0 +1,44 @@
+name: Autonomous Build Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Discover project
+        run: python .github/scripts/routing-planner.py .
+
+      - name: Validate routing plan
+        run: python .github/scripts/validate-routing-plan.py .github/routing-plan.json
+
+      - name: Run build validation adapter
+        run: python .github/scripts/build-adapter.py .
+
+      - name: Upload routing and build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-build-evidence
+          path: |
+            .github/routing-plan.json
+            .github/build-report.json
+          if-no-files-found: error
+          retention-days: 14
