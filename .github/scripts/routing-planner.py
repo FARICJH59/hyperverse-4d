@@ -15,6 +15,9 @@ files = []
 
 for base, dirs, names in os.walk(ROOT):
     dirs[:] = [d for d in dirs if d not in EXCLUDED]
+    # Keep CI helper scripts out of project-language detection.
+    if Path(base).relative_to(ROOT).as_posix() == ".github":
+        dirs[:] = [d for d in dirs if d != "scripts"]
     for name in names:
         path = Path(base) / name
         files.append(path.relative_to(ROOT).as_posix())
